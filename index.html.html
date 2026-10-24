@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>霓虹跑酷手机版 · Neon Runner Mobile</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; min-height:100dvh; display:grid; place-items:center; background:radial-gradient(ellipse at top,#1b2750 0%,#0a1023 55%,#050812 100%); color:#f3f7ff; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { width:min(960px,96vw); padding: max(10px, env(safe-area-inset-top)) 0 max(14px, env(safe-area-inset-bottom)); }
+  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  h1 { margin:0; font-size:clamp(22px,4vw,34px); letter-spacing:.04em; }
+  h1 span { color:#64f6ff; text-shadow:0 0 18px #24d9f5; }
+  .hint { color:#aab8dc; font-size:13px; }
+  .gamebox { position:relative; border:1px solid #354a7b; border-radius:18px; overflow:hidden; box-shadow:0 18px 70px #0008,0 0 35px #23d9f522; background:#091126; }
+  canvas { display:block; width:100%; height:auto; touch-action:manipulation; }
+  .hud { position:absolute; top:14px; left:16px; right:16px; display:flex; justify-content:space-between; pointer-events:none; font-weight:700; text-shadow:0 2px 8px #000; }
+  .pill { background:#0b1439bb; border:1px solid #7189c866; border-radius:999px; padding:7px 12px; backdrop-filter:blur(8px); }
+  .overlay { position:absolute; inset:0; display:grid; place-items:center; background:#05091acc; text-align:center; padding:24px; }
+  .panel { max-width:480px; }
+  .panel h2 { font-size:clamp(28px,5vw,48px); margin:0 0 8px; }
+  .panel p { color:#bdc9e9; line-height:1.65; margin:8px 0 20px; }
+  button { cursor:pointer; border:0; border-radius:999px; padding:12px 24px; font-weight:800; font-size:16px; color:#061022; background:linear-gradient(100deg,#68f7ff,#8bffbd); box-shadow:0 5px 22px #42e7ed55; }
+  button:hover { transform:translateY(-1px); filter:brightness(1.06); }
+  .bottom { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:#91a2cb; font-size:13px; margin-top:12px; }
+  kbd { border:1px solid #6575a3; border-bottom-width:3px; border-radius:5px; padding:1px 6px; color:#eaf1ff; background:#141f42; }
+  .mobile { display:flex; gap:12px; margin-top:12px; touch-action:manipulation; user-select:none; }
+  .mobile button { flex:1; min-height:58px; padding:14px; font-size:18px; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  @media (max-width:650px) {
+      body { display:block; }
+      .wrap { width:100%; padding: max(10px, env(safe-area-inset-top)) 10px max(14px, env(safe-area-inset-bottom)); }
+      .top { margin-bottom:8px; align-items:flex-start; }
+      .hint { font-size:11px; max-width:120px; text-align:right; }
+      .gamebox { border-radius:12px; }
+      .hud { top:8px; left:8px; right:8px; font-size:12px; }
+      .pill { padding:5px 8px; }
+      .mobile { display:flex; }
+      .bottom .desktop { display:none; }
+      .bottom { font-size:12px; }
+    }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>NEON <span>RUNNER</span> / 霓虹跑酷</h1>
+    <div class="hint">手机版触屏操作<br>躲障碍 · 收能量</div>
+  </div>
+  <div class="gamebox">
+    <canvas id="game" width="900" height="500" aria-label="霓虹跑酷游戏"></canvas>
+    <div class="hud">
+      <div class="pill">分数 <span id="score">0</span></div>
+      <div class="pill">◆ <span id="coins">0</span></div>
+      <div class="pill">最高分 <span id="best">0</span></div>
+    </div>
+    <div class="overlay" id="overlay">
+      <div class="panel">
+        <h2>准备好开跑了吗？</h2>
+        <p>手机：点击画面或按“跳跃”按钮起跳，按“下滑”躲避。电脑：空格键跳跃，方向键下滑。避开路障，收集发光能量球！</p>
+        <button id="start">开始跑酷 ▶</button>
+      </div>
+    </div>
+  </div>
+  <div class="mobile">
+    <button id="jumpBtn">⬆ 跳跃</button><button id="slideBtn">⬇ 下滑</button>
+  </div>
+  <div class="bottom">
+    <div class="desktop">键盘：<kbd>空格</kbd> 跳跃 · <kbd>↓</kbd> 下滑 · <kbd>R</kbd> 重新开始</div>
+    <div>小提示：跑得越久，速度越快！</div>
+  </div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score'), coinsEl = document.getElementById('coins'), bestEl = document.getElementById('best');
+  const overlay = document.getElementById('overlay'), startBtn = document.getElementById('start');
+  const W = canvas.width, H = canvas.height, ground = 405;
+  let running = false, over = false, frame = 0, score = 0, coins = 0, speed = 6;
+  let obstacles = [], gems = [], particles = [], stars = [];
+  let best = Number(localStorage.getItem('neonRunnerBest') || 0);
+  bestEl.textContent = best;
+  const player = { x:115, y:ground-54, w:34, h:54, vy:0, grounded:true, sliding:false, slideTimer:0 };
+  for(let i=0;i<70;i++) stars.push({x:Math.random()*W,y:Math.random()*330,r:Math.random()*1.8+.3,a:Math.random()*.7+.2});
+  function reset() {
+    frame=0; score=0; coins=0; speed=6; obstacles=[]; gems=[]; particles=[];
+    Object.assign(player,{y:ground-54,vy:0,grounded:true,sliding:false,slideTimer:0});
+    scoreEl.textContent='0'; coinsEl.textContent='0'; over=false; running=true; overlay.style.display='none';
+    requestAnimationFrame(loop);
+  }
+  function jump(){ if(!running){ if(over) reset(); return; } if(player.grounded && !player.sliding){player.vy=-15.5;player.grounded=false; burst(player.x+15,player.y+35,'#62f5ff',8);} }
+  function slide(){ if(!running)return; if(player.grounded){player.sliding=true;player.slideTimer=38;} }
+  function burst(x,y,color,n){for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*5,vy:(Math.random()-.7)*5,life:25,color});}
+  function spawn(){
+    if(frame%Math.max(48,Math.floor(98-speed*4))===0){
+      const type=Math.random()<.52?'block':'bar';
+      obstacles.push(type==='block'?{x:W+20,y:ground-43,w:35,h:43,type}:{x:W+20,y:ground-72,w:68,h:18,type});
+    }
+    if(frame%82===25){gems.push({x:W+10,y:ground-75-Math.random()*65,r:10,phase:Math.random()*6});}
+  }
+  function collide(a,b){return a.x < b.x+b.w && a.x+a.w>b.x && a.y < b.y+b.h && a.y+a.h>b.y;}
+  function update(){
+    frame++; score += .12; speed=Math.min(12,6+score/170);
+    player.vy+=.72; player.y+=player.vy;
+    const ph=player.sliding?28:player.h;
+    if(player.y+ph>=ground){player.y=ground-ph;player.vy=0;player.grounded=true;} else player.grounded=false;
+    if(player.slideTimer>0){player.slideTimer--; if(player.slideTimer===0)player.sliding=false;}
+    spawn();
+    obstacles.forEach(o=>o.x-=speed); gems.forEach(g=>{g.x-=speed;g.phase+=.12;});
+    obstacles=obstacles.filter(o=>o.x+o.w>-20);
+    gems=gems.filter(g=>g.x+g.r>-20);
+    const pbox={x:player.x+4,y:player.y+4,w:player.w-8,h:(player.sliding?24:player.h)-7};
+    for(const o of obstacles){if(collide(pbox,o)){endGame();return;}}
+    for(const g of gems){if(!g.got && Math.hypot((player.x+player.w/2)-g.x,(player.y+(player.sliding?15:25))-g.y)<27){g.got=true;coins++;score+=8;coinsEl.textContent=coins;burst(g.x,g.y,'#ffe66d',12);}}
+    gems=gems.filter(g=>!g.got);
+    particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.life--;});particles=particles.filter(p=>p.life>0);
+    scoreEl.textContent=Math.floor(score);
+  }
+  function draw(){
+    const grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,'#111c43');grad.addColorStop(1,'#070d20');ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+    // distant city skyline
+    for(let i=0;i<18;i++){let x=i*58-((frame*0.35)%58),h=45+(i*37%105);ctx.fillStyle='#15234a';ctx.fillRect(x,ground-h,42,h);for(let wy=ground-h+12;wy<ground-8;wy+=17)for(let wx=x+8;wx<x+36;wx+=14){ctx.fillStyle=((i+Math.floor(wy/17))%3===0)?'#42d9ee55':'#7b91d433';ctx.fillRect(wx,wy,4,6);}}
+    stars.forEach(s=>{ctx.globalAlpha=s.a*(.7+.3*Math.sin(frame*.03+s.x));ctx.fillStyle='#d4f7ff';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();});ctx.globalAlpha=1;
+    // horizon glow and ground
+    ctx.fillStyle='#10264a';ctx.fillRect(0,ground,W,H-ground);
+    ctx.strokeStyle='#28dff5';ctx.lineWidth=2;ctx.shadowColor='#27e7ff';ctx.shadowBlur=14;ctx.beginPath();ctx.moveTo(0,ground);ctx.lineTo(W,ground);ctx.stroke();ctx.shadowBlur=0;
+    ctx.strokeStyle='#1d4972';ctx.lineWidth=1;
+    for(let x=-((frame*speed)%50);x<W;x+=50){ctx.beginPath();ctx.moveTo(x,ground);ctx.lineTo(x-30,H);ctx.stroke();}
+    for(let y=ground+25;y<H;y+=25){ctx.globalAlpha=.25;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}ctx.globalAlpha=1;
+    // obstacles
+    obstacles.forEach(o=>{ctx.shadowBlur=14;ctx.shadowColor='#ff4f91';ctx.fillStyle=o.type==='block'?'#ff477e':'#ff9a5a';ctx.fillRect(o.x,o.y,o.w,o.h);ctx.shadowBlur=0;ctx.strokeStyle='#ffd2e1';ctx.lineWidth=2;ctx.strokeRect(o.x+3,o.y+3,o.w-6,o.h-6);if(o.type==='bar'){ctx.fillStyle='#421735';ctx.fillRect(o.x+8,o.y+5,o.w-16,5);}});
+    // collectibles
+    gems.forEach(g=>{ctx.save();ctx.translate(g.x,g.y+Math.sin(g.phase)*5);ctx.rotate(g.phase*.7);ctx.shadowColor='#ffe66d';ctx.shadowBlur=20;ctx.fillStyle='#ffe66d';ctx.beginPath();ctx.moveTo(0,-g.r);ctx.lineTo(g.r*.75,0);ctx.lineTo(0,g.r);ctx.lineTo(-g.r*.75,0);ctx.closePath();ctx.fill();ctx.restore();});
+    // player shadow
+    ctx.fillStyle='#02061388';ctx.beginPath();ctx.ellipse(player.x+17,ground+3,22,5,0,0,Math.PI*2);ctx.fill();
+    // player body with glow
+    const ph=player.sliding?28:player.h, py=player.y;
+    ctx.save();ctx.shadowColor='#55f4ff';ctx.shadowBlur=20;
+    const pg=ctx.createLinearGradient(player.x,py,player.x+player.w,py+ph);pg.addColorStop(0,'#70fbff');pg.addColorStop(1,'#5d7bff');ctx.fillStyle=pg;
+    if(player.sliding){roundRect(player.x,py+4,player.w+16,ph,9);ctx.fill();}else{roundRect(player.x,py,player.w,ph,10);ctx.fill();}
+    ctx.shadowBlur=0;ctx.fillStyle='#102448';ctx.fillRect(player.x+19,py+12,9,5);ctx.fillStyle='#fff';ctx.fillRect(player.x+23,py+12,3,2);
+    ctx.strokeStyle='#c5ffff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(player.x+8,py+ph-2);ctx.lineTo(player.x+2,py+ph+5);ctx.moveTo(player.x+25,py+ph-2);ctx.lineTo(player.x+30,py+ph+4);ctx.stroke();ctx.restore();
+    particles.forEach(p=>{ctx.globalAlpha=p.life/25;ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,4,4);});ctx.globalAlpha=1;
+    if(running && frame%7<4){ctx.fillStyle='#58f5ff';ctx.globalAlpha=.65;ctx.fillRect(player.x-13,player.y+ph-10,8,3);ctx.globalAlpha=1;}
+  }
+  function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+  function loop(){if(!running)return;update();draw();if(running)requestAnimationFrame(loop);}
+  function endGame(){running=false;over=true;const final=Math.floor(score);if(final>best){best=final;localStorage.setItem('neonRunnerBest',best);bestEl.textContent=best;}overlay.style.display='grid';overlay.innerHTML=`<div class="panel"><h2>游戏结束！</h2><p>本次得分：<strong style="color:#68f7ff">${final}</strong>　收集能量：<strong style="color:#ffe66d">${coins}</strong><br>再来一局，冲击更高分数！</p><button id="again">再跑一次 ↻</button></div>`;document.getElementById('again').addEventListener('click',reset);}
+  startBtn.addEventListener('click',reset);
+  document.addEventListener('keydown',e=>{if(['Space','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();if(!running){reset();}else jump();}if(['ArrowDown','KeyS'].includes(e.code))slide();if(e.code==='KeyR')reset();});
+  canvas.addEventListener('pointerdown',()=>{if(!running){reset();}else jump();});
+  document.getElementById('jumpBtn').addEventListener('click',()=>{if(!running)reset();else jump();});
+  document.getElementById('slideBtn').addEventListener('click',slide);
+  draw();
+})();
+</script>
+</body>
+</html>
